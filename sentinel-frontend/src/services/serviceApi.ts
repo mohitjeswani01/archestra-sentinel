@@ -1,5 +1,3 @@
-// ─── INTERFACES ─────────────────────────────────────────────
-
 export interface MCP_Server {
   id: string;
   name: string;
@@ -113,12 +111,15 @@ export async function getCostAnalytics(): Promise<Cost_Analytics> {
   return mockCostAnalytics;
 }
 
-export async function executeAction(actionType: string, agentId: string): Promise<{ success: boolean; message: string }> {
+export async function executeAction(actionType: string, targetId: string): Promise<{ success: boolean; message: string }> {
   await delay(800);
   if (actionType === "kill") {
-    return { success: true, message: `Kill switch executed for ${agentId}. Agent terminated. All access tokens revoked.` };
+    return { success: true, message: `Kill switch executed for ${targetId}. Target terminated. All access tokens revoked.` };
   }
-  return { success: true, message: `Action "${actionType}" executed on ${agentId}.` };
+  if (actionType === "quarantine") {
+    return { success: true, message: `Quarantine enacted for ${targetId}. All inbound connections blocked. Agent bindings severed.` };
+  }
+  return { success: true, message: `Action "${actionType}" executed on ${targetId}.` };
 }
 
 export async function getAuditLog(): Promise<Audit_Log_Event[]> {
@@ -139,7 +140,7 @@ export async function loginWithSSO(): Promise<{ token: string; user: { name: str
   const token = `archestra_${Date.now()}_${Math.random().toString(36).slice(2)}`;
   return {
     token,
-    user: { name: "Sarah Chen", role: "Platform Engineer", email: "s.chen@archestra.io" },
+    user: { name: "Matvey Kukuy", role: "Platform Engineer", email: "matvey@aschestra.ai" },
   };
 }
 
