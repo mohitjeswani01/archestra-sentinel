@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { getDiscovery, executeAction, type MCP_Server, type AI_Agent } from "@/services/serviceApi";
 import { motion } from "framer-motion";
-import { Search, Eye, Zap } from "lucide-react";
+import { Search, Eye, Zap, ShieldOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { AgentInspectDialog, RiskTooltip } from "@/components/discovery/AgentInspectDialog";
 import { ServerInspectDialog } from "@/components/discovery/ServerInspectDialog";
 import { KillSwitchDialog } from "@/components/discovery/KillSwitchDialog";
+import { ServerActionDialog } from "@/components/discovery/serverActionDialog";
 
 const riskColors: Record<string, string> = {
   low: "bg-success/10 text-success-val border-success/20",
@@ -38,6 +39,7 @@ export default function DiscoveryDashboard() {
   const [inspectAgent, setInspectAgent] = useState<AI_Agent | null>(null);
   const [inspectServer, setInspectServer] = useState<MCP_Server | null>(null);
   const [killTarget, setKillTarget] = useState<AI_Agent | null>(null);
+  const [serverActionTarget, setServerActionTarget] = useState<{ server: MCP_Server; action: "quarantine" | "kill" } | null>(null);
 
   const { data, isLoading } = useQuery({ queryKey: ["discovery"], queryFn: getDiscovery });
 
@@ -46,6 +48,15 @@ export default function DiscoveryDashboard() {
     onSuccess: (res) => {
       toast.error(res.message, { description: "Kill switch executed" });
       setKillTarget(null);
+    },
+  });
+
+  const serverActionMutation = useMutation({
+    mutationFn: ({ actionType, serverId }: { actionType: string; serverId: string }) => executeAction(actionType, serverId),
+    onSuccess: (res, vars) => {
+      const toastFn = vars.actionType === "kill" ? toast.error : toast.warning;
+      toastFn(res.message, { description: `Server ${vars.actionType} executed` });
+      setServerActionTarget(null);
     },
   });
 
@@ -163,9 +174,17 @@ export default function DiscoveryDashboard() {
                       <td className="p-4">{server.toolsExposed}</td>
                       <td className="p-4 text-muted-foreground text-xs">{formatTimestamp(server.lastSeen)}</td>
                       <td className="p-4 text-right">
-                        <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setInspectServer(server)}>
-                          <Eye className="h-3 w-3 mr-1" /> Inspect
-                        </Button>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => setInspectServer(server)}>
+                            <Eye className="h-3 w-3 mr-1" /> Inspect
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-signal hover:text-signal" onClick={() => setServerActionTarget({ server, action: "quarantine" })}>
+                            <ShieldOff className="h-3 w-3 mr-1" /> Quarantine
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-destructive hover:text-destructive" onClick={() => setServerActionTarget({ server, action: "kill" })}>
+                            <Zap className="h-3 w-3 mr-1" /> Kill
+                          </Button>
+                        </div>
                       </td>
                     </motion.tr>
                   ))}
@@ -185,6 +204,14 @@ export default function DiscoveryDashboard() {
         onOpenChange={(v) => !v && setKillTarget(null)}
         onConfirm={(id) => killMutation.mutate({ agentId: id })}
         isPending={killMutation.isPending}
+      />
+      <ServerActionDialog
+        server={serverActionTarget?.server ?? null}
+        actionType={serverActionTarget?.action ?? "quarantine"}
+        open={!!serverActionTarget}
+        onOpenChange={(v) => !v && setServerActionTarget(null)}
+        onConfirm={(id) => serverActionMutation.mutate({ actionType: serverActionTarget!.action, serverId: id })}
+        isPending={serverActionMutation.isPending}
       />
     </motion.div>
   );
