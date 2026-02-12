@@ -1,0 +1,25 @@
+services:
+  sentinel-backend:
+    build: ./sentinel-backend
+    container_name: sentinel_backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./sentinel-backend:/app
+    environment:
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    restart: always
+
+  sentinel-frontend:
+    build: ./sentinel-frontend
+    container_name: sentinel_frontend
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./sentinel-frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
+    depends_on:
+      - sentinel-backend
