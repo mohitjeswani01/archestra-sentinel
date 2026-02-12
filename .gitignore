@@ -21,10 +21,12 @@ pnpm-debug.log*
 
 # Env files (never commit secrets)
 .env
-.env.local
-.env.development
-.env.production
-
+.env.platform
+platform/.env.platform
+archestra-app-data/
+archestra-postgres-data/
+__pycache__/
+*.pyc
 # =========================
 # Python / Backend (future)
 # =========================

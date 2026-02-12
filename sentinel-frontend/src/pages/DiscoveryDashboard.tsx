@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { AgentInspectDialog, RiskTooltip } from "@/components/discovery/AgentInspectDialog";
 import { ServerInspectDialog } from "@/components/discovery/ServerInspectDialog";
 import { KillSwitchDialog } from "@/components/discovery/KillSwitchDialog";
-import { ServerActionDialog } from "@/components/discovery/serverActionDialog";
+import { ServerActionDialog } from "@/components/discovery/ServerActionDialog";
 
 const riskColors: Record<string, string> = {
   low: "bg-success/10 text-success-val border-success/20",
