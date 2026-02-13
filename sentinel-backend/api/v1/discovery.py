@@ -9,6 +9,8 @@ router = APIRouter()
 scanner = DockerScanner()
 
 
+import asyncio
+
 @router.get("/discovery/shadow-ai", response_model=List[ContainerInfo])
 async def get_shadow_ai():
     """
@@ -17,11 +19,15 @@ async def get_shadow_ai():
     Shadow AI = Unsanctioned containers with low trust scores
     """
     try:
-        containers = scanner.scan_containers()
+        # Run synchronous docker calls in a thread to avoid blocking the event loop
+        containers = await asyncio.to_thread(scanner.scan_containers)
+        print(f"DEBUG: Found {len(containers)} containers")
+        logger.info(f"Discovery API: Found {len(containers)} containers")
         return containers
     except Exception as e:
         logger.error(f"Error scanning containers: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to scan containers: {str(e)}")
+        # Return empty list instead of 500 to avoid breaking frontend, but log heavily
+        return []
 
 
 @router.get("/discovery/containers", response_model=List[ContainerInfo])

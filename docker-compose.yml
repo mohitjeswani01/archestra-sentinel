@@ -14,6 +14,8 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - DOCKER_HOST=tcp://host.docker.internal:2375
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
   sentinel-frontend:
@@ -22,11 +24,14 @@ services:
       dockerfile: Dockerfile
     container_name: sentinel_frontend
     ports:
-      - "3001:5173"
+      - "8080:8080"
     volumes:
       - ./sentinel-frontend:/app
       - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000/api/v1
     stdin_open: true
     tty: true
+    command: npm run dev -- --port 8080 --host 0.0.0.0
     depends_on:
       - sentinel-backend

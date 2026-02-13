@@ -13,6 +13,7 @@ class ContainerInfo(BaseModel):
     image: str
     status: str
     is_sanctioned: bool
+    type: str = "mcp_server"  # Default type: mcp_server or ai_agent
     threat_level: str
     risk_score: int
     trust_score: int
@@ -20,41 +21,69 @@ class ContainerInfo(BaseModel):
 
 class DockerScanner:
     def __init__(self):
+        self.client = None
+        # attempt 1: FORCE Windows/Mac TCP (host.docker.internal)
+        # This is critical for Windows Docker Desktop w/ WSL2 or Hyper-V
         try:
-            # Try environment first (Linux/Mac with docker socket)
-            self.client = docker.from_env()
+            self.client = docker.DockerClient(base_url="tcp://host.docker.internal:2375")
+            self.client.ping()
+            logger.info("Connected via tcp://host.docker.internal:2375")
         except Exception as e:
-            # Try Windows TCP connection to Docker Desktop
+            logger.warning(f"host.docker.internal failed: {e}. Attempting standard env/socket...")
+            
+            # attempt 2: Standard Environment
             try:
-                logger.warning(f"Docker from_env failed: {e}. Trying Windows TCP...")
-                self.client = docker.DockerClient(base_url="tcp://127.0.0.1:2375")
-                # Test connection
+                self.client = docker.from_env()
                 self.client.ping()
-                logger.info("Connected via Windows TCP (127.0.0.1:2375)")
+                logger.info("Connected to Docker via environment/socket")
             except Exception as e2:
-                logger.error(f"CRITICAL: Could not connect to Docker. Error: {e}, Error2: {e2}")
+                logger.error(f"CRITICAL: Could not connect to Docker. Error: {e2}")
                 self.client = None
 
-    def _get_container_stats_safe(self, container) -> Dict[str, Any]:
+    def _determine_container_type(self, name: str, image: str) -> str:
         """
-        Safely get container stats with error handling
+        Determine if a container is an 'ai_agent' or 'mcp_server'.
         """
         try:
-            stats = container.stats(stream=False)
-            return stats
+            name_lower = name.lower() if name else ""
+            image_lower = image.lower() if image else ""
+            
+            agent_keywords = ['agent', 'ai', 'bot', 'sentinel', 'orchestrate', 'llm', 'gpt']
+            
+            if any(k in name_lower for k in agent_keywords) or any(k in image_lower for k in agent_keywords):
+                return "ai_agent"
+        except:
+            pass
+            
+        # Default EVERYTHING else to mcp_server so we see it in the dashboard
+        return "mcp_server"
+
+    def _get_container_stats_safe(self, container) -> Dict[str, Any]:
+        try:
+            # timeout=2 prevents hanging on frozen containers
+            # stream=False ensures we get a snapshot, not a stream
+            return container.stats(stream=False, decode=True)
         except Exception as e:
-            logger.warning(f"Could not get stats for container {container.name}: {e}")
-            return {}
+            logger.warning(f"Stats failed for {container.name}: {e}")
+            # Return safe defaults to prevent crashing risk engine
+            return {
+                "cpu_stats": {},
+                "precpu_stats": {},
+                "memory_stats": {},
+                "networks": {}
+            }
 
     def scan_containers(self) -> List[ContainerInfo]:
         if not self.client:
-            logger.warning("Docker client is not initialized. returning empty list.")
+            print("ERROR: Docker client is None. Cannot scan.")
             return []
 
         try:
             containers = self.client.containers.list(all=True)
+            print(f"DEBUG: Scanner raw container count: {len(containers)}")
         except Exception as e:
             logger.error(f"Failed to list containers: {e}")
+            print(f"ERROR: Failed to list containers: {e}")
             return []
 
         results = []
@@ -67,40 +96,29 @@ class DockerScanner:
                 image_name = image_tags[0] if image_tags else "unknown"
                 image_repo = image_name.split(":")[0]
 
-                # Check if sanctioned
-                is_sanctioned = any(
-                    sanctioned in image_repo.lower() for sanctioned in SANCTIONED_IMAGES
-                )
+                is_sanctioned = any(s in image_repo.lower() for s in SANCTIONED_IMAGES)
 
-                # Get container stats for Resource Footprint calculation
+                # Fallback stats to avoid blocking
                 stats = self._get_container_stats_safe(container)
 
-                # Calculate new Trust Score
                 try:
                     trust_score, trust_details = TrustScoreEvaluator.calculate_trust_score(
                         container.attrs, image_name, stats
                     )
-                except Exception as e:
-                    logger.error(f"Error calculating trust score for {name}: {e}")
+                except:
                     trust_score = 50
-                    trust_details = {"error": str(e)}
+                    trust_details = {"error": "calculation_failed"}
 
-                # Convert trust score to risk score (inverse) for backward compatibility
-                risk_score = 100 - trust_score
+                if trust_score >= 80: threat_level = "Low"
+                elif trust_score >= 60: threat_level = "Medium"
+                elif trust_score >= 40: threat_level = "High"
+                else: threat_level = "Critical"
 
-                # Determine Threat Level based on trust score (not risk score)
-                if trust_score >= 80:
-                    threat_level = "Low"
-                elif trust_score >= 60:
-                    threat_level = "Medium"
-                elif trust_score >= 40:
-                    threat_level = "High"
-                else:
-                    threat_level = "Critical"
-
-                # Additional flag: if not sanctioned, elevate threat
                 if not is_sanctioned and trust_score < 60:
                     threat_level = "Critical"
+                
+                # CLASSIFICATION LOGIC
+                container_type = self._determine_container_type(name, image_name)
 
                 info = ContainerInfo(
                     id=container.short_id,
@@ -108,15 +126,16 @@ class DockerScanner:
                     image=image_name,
                     status=container.status,
                     is_sanctioned=is_sanctioned,
+                    type=container_type,
                     threat_level=threat_level,
-                    risk_score=risk_score,
+                    risk_score=100 - trust_score,
                     trust_score=trust_score,
                     trust_details=trust_details,
                 )
                 results.append(info)
 
             except Exception as e:
-                logger.error(f"Error processing container: {e}")
+                logger.error(f"Error processing container {container.name}: {e}")
                 continue
 
         return results

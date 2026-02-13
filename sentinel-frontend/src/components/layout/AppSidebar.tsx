@@ -75,7 +75,7 @@ export function AppSidebar() {
               <div className="h-2 w-2 rounded-full bg-success animate-pulse-glow" />
               <span className="text-xs font-medium">System Online</span>
             </div>
-            <p className="text-xs text-muted-foreground">6 MCP servers connected</p>
+            <p className="text-xs text-muted-foreground"> MCP server connected</p>
           </div>
           <Button variant="ghost" size="sm" className="w-full justify-start text-xs text-muted-foreground hover:text-destructive" onClick={handleLogout}>
             <LogOut className="h-3.5 w-3.5 mr-2" />

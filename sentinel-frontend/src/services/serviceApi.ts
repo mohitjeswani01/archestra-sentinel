@@ -88,7 +88,7 @@ export interface ExecutiveMetrics {
 // ─── SERVICE API (100% Real Backend Integration) ───────────────────────
 
 const axiousConfig = {
-  timeout: 5000, // Increased from 5000ms for backend response time
+  timeout: 10000, // Increased to 10s for heavy container loads
 };
 
 /**
@@ -174,13 +174,20 @@ export async function getExecutiveMetrics(): Promise<ExecutiveMetrics> {
  */
 export async function getDiscovery(): Promise<{ servers: MCP_Server[]; agents: AI_Agent[] }> {
   try {
+    // FORCE URL as requested for debugging
     const response = await axios.get(
-      `${API_URL}/discovery/shadow-ai`,
+      "http://localhost:8000/api/v1/discovery/shadow-ai",
       axiousConfig
     );
     const containers = response.data || [];
+    console.log("RAW DOCKER DATA:", containers);
 
-    const servers: MCP_Server[] = containers.map((c: any) => {
+    // Filter based on backend classification
+    // IF Backend doesn't send type, default to "mcp_server"
+    const serverContainers = containers.filter((c: any) => c.type === "mcp_server" || !c.type);
+    const agentContainers = containers.filter((c: any) => c.type === "ai_agent");
+
+    const servers: MCP_Server[] = serverContainers.map((c: any) => {
       // Map trust score to risk level
       let riskLevel: "low" | "medium" | "high" | "critical" = "low";
       if (c.trust_score < 40) {
@@ -207,22 +214,20 @@ export async function getDiscovery(): Promise<{ servers: MCP_Server[]; agents: A
       };
     });
 
-    // Create agents from containers - each container can be an AI agent if running
-    const agents: AI_Agent[] = containers
-      .filter((c: any) => c.status === "running")
-      .map((c: any) => ({
-        id: c.id,
-        name: c.name,
-        model: c.image?.split(":")[0] || "Container",
-        status: "active" as const,
-        riskScore: 100 - c.trust_score,
-        riskLevel: c.trust_score < 40 ? "critical" : c.trust_score < 60 ? "high" : c.trust_score < 80 ? "medium" : "low",
-        lastSeen: new Date().toISOString(),
-        totalCalls: 0,
-        costPerDay: 300,
-        mcpServerId: c.id,
-        capabilities: c.is_sanctioned ? ["trusted-operations"] : ["limited-operations"],
-      }));
+    // Create agents from ai_agent containers
+    const agents: AI_Agent[] = agentContainers.map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      model: c.image?.split(":")[0] || "Container",
+      status: c.status === "running" ? "active" : "dormant",
+      riskScore: 100 - c.trust_score,
+      riskLevel: c.trust_score < 40 ? "critical" : c.trust_score < 60 ? "high" : c.trust_score < 80 ? "medium" : "low",
+      lastSeen: new Date().toISOString(),
+      totalCalls: 0,
+      costPerDay: 300,
+      mcpServerId: c.id,
+      capabilities: c.is_sanctioned ? ["trusted-operations"] : ["limited-operations"],
+    }));
 
     return { servers, agents };
   } catch (error) {
@@ -342,29 +347,25 @@ export async function executeAction(
  * Get Audit Logs - Real trust score changes & actions
  * NO MOCK DATA - Shows container governance and trust score updates
  */
-export async function getAuditLog(limit: number = 50): Promise<Audit_Log_Event[]> {
+export async function getAuditLog(limit: number = 20): Promise<Audit_Log_Event[]> {
   try {
     const response = await axios.get(
       `${API_URL}/governance/audit-logs?limit=${limit}`,
       axiousConfig
     );
-
     return response.data.map((log: any) => ({
       id: log.id,
       timestamp: log.timestamp,
-      agentId: log.container_id || "system",
       agentName: log.agent_name,
       action: log.action,
-      tool: log.tool,
-      status: log.status.toLowerCase(),
+      status: log.status,
       details: log.details,
-      duration: log.duration,
-      container_id: log.container_id,
-      trust_score_change: log.trust_score_change,
+      ipAddress: "127.0.0.1", // Default since docker doesn't always give IP
+      user: "System",
     }));
   } catch (error) {
     console.error("Failed to fetch audit logs", error);
-    return [];
+    return []; // Return empty list, NO MOCKS
   }
 }
 

@@ -3,3 +3,4 @@ uvicorn==0.27.0
 docker==7.0.0
 pydantic==2.5.3
 python-multipart==0.0.7
+pypiwin32==223; sys_platform == 'win32'

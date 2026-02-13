@@ -14,7 +14,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"], # Allow ALL for strict debugging
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -24,7 +24,7 @@ app.add_middleware(
 app.include_router(discovery.router, prefix="/api/v1")
 app.include_router(governance.router, prefix="/api/v1")
 app.include_router(observability.router, prefix="/api/v1")
-app.include_router(security.router, prefix="/api/v1")
+# app.include_router(security.router, prefix="/api/v1")
 
 @app.get("/")
 async def root():

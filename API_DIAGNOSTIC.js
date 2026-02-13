@@ -4,19 +4,19 @@
  */
 
 const API_URL = "http://localhost:8000/api/v1";
-const timeout = 5000;
+const timeout = 10000;
 
 async function testEndpoint(name, endpoint) {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
-    
+
     const response = await fetch(`${API_URL}${endpoint}`, {
       signal: controller.signal
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     if (response.ok) {
       const data = await response.json();
       console.log(`✅ ${name}: SUCCESS`);
@@ -33,8 +33,8 @@ async function testEndpoint(name, endpoint) {
 
 async function runDiagnostics() {
   console.log("🔍 Archestra Sentinel API Diagnostics");
-  console.log("=" .repeat(50));
-  
+  console.log("=".repeat(50));
+
   const results = await Promise.all([
     testEndpoint("System Health", "/system/health"),
     testEndpoint("Discovery (Shadow AI)", "/discovery/shadow-ai"),
@@ -42,15 +42,15 @@ async function runDiagnostics() {
     testEndpoint("Security Alerts", "/security/alerts"),
     testEndpoint("Governance Audit Logs", "/governance/audit-logs"),
   ]);
-  
+
   console.log("\n📊 Results:");
-  console.log("=" .repeat(50));
-  
+  console.log("=".repeat(50));
+
   const passed = results.filter(r => r.success).length;
   const total = results.length;
-  
+
   console.log(`Passed: ${passed}/${total}`);
-  
+
   if (passed === total) {
     console.log("\n✅ All endpoints are working! Refresh the page to reload data.");
   } else {
