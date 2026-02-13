@@ -13,6 +13,7 @@ import { AgentInspectDialog, RiskTooltip } from "@/components/discovery/AgentIns
 import { ServerInspectDialog } from "@/components/discovery/ServerInspectDialog";
 import { KillSwitchDialog } from "@/components/discovery/KillSwitchDialog";
 import { ServerActionDialog } from "@/components/discovery/ServerActionDialog";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const riskColors: Record<string, string> = {
   low: "bg-success/10 text-success-val border-success/20",
@@ -35,13 +36,21 @@ function formatTimestamp(ts: string) {
 }
 
 export default function DiscoveryDashboard() {
+  return (
+    <ErrorBoundary>
+      <DiscoveryDashboardContent />
+    </ErrorBoundary>
+  );
+}
+
+function DiscoveryDashboardContent() {
   const [search, setSearch] = useState("");
   const [inspectAgent, setInspectAgent] = useState<AI_Agent | null>(null);
   const [inspectServer, setInspectServer] = useState<MCP_Server | null>(null);
   const [killTarget, setKillTarget] = useState<AI_Agent | null>(null);
   const [serverActionTarget, setServerActionTarget] = useState<{ server: MCP_Server; action: "quarantine" | "kill" } | null>(null);
 
-  const { data, isLoading } = useQuery({ queryKey: ["discovery"], queryFn: getDiscovery });
+  const { data, isLoading, error } = useQuery({ queryKey: ["discovery"], queryFn: getDiscovery });
 
   const killMutation = useMutation({
     mutationFn: ({ agentId }: { agentId: string }) => executeAction("kill", agentId),
@@ -60,7 +69,7 @@ export default function DiscoveryDashboard() {
     },
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-8 w-64" />
@@ -70,8 +79,22 @@ export default function DiscoveryDashboard() {
     );
   }
 
-  const filteredAgents = data.agents.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()) || a.id.includes(search));
-  const filteredServers = data.servers.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) || s.id.includes(search));
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div className="text-2xl font-bold tracking-tight">Discovery & Governance</div>
+        <div className="glass-panel glow-border rounded-xl p-6 text-center">
+          <p className="text-destructive font-semibold mb-2">Failed to load discovery data</p>
+          <p className="text-muted-foreground text-sm mb-4">Make sure your backend is running on http://localhost:8000</p>
+          <Button onClick={() => window.location.reload()}>Retry</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const safeData = data || { servers: [], agents: [] };
+  const filteredAgents = (safeData.agents || []).filter((a) => a.name.toLowerCase().includes(search.toLowerCase()) || a.id.includes(search));
+  const filteredServers = (safeData.servers || []).filter((s) => s.name.toLowerCase().includes(search.toLowerCase()) || s.id.includes(search));
 
   return (
     <motion.div variants={container} initial="hidden" animate="show" className="space-y-6">
@@ -87,8 +110,8 @@ export default function DiscoveryDashboard() {
 
       <Tabs defaultValue="agents">
         <TabsList className="bg-secondary">
-          <TabsTrigger value="agents">AI Agents ({data.agents.length})</TabsTrigger>
-          <TabsTrigger value="servers">MCP Servers ({data.servers.length})</TabsTrigger>
+          <TabsTrigger value="agents">AI Agents ({(safeData.agents || []).length})</TabsTrigger>
+          <TabsTrigger value="servers">MCP Servers ({(safeData.servers || []).length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="agents" className="mt-4">
