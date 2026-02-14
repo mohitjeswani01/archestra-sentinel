@@ -2,7 +2,7 @@
 
 ### **The Security Guard for the AI-Agent Era**
 
-![Sentinel Banner](https://via.placeholder.com/1200x300?text=Archestra+Sentinel+|+Zero+Trust+for+AI+Agents)
+![Sentinel Banner](https://github.com/user-attachments/assets/4e540915-4279-414f-a6e4-dc9f4cf8fa79)
 
 ---
 
@@ -52,7 +52,7 @@ At the heart of Sentinel is the **4-Vector Trust Engine**. Unlike simple status 
 ### 1. Executive Overview
 A high-level "Mission Control" view for CTOs and Security Leads. Displays the **Global System Health**, **Total Active Agents**, and **Financial Impact**.
 
-> [INSERT SCREENSHOT HERE: Executive Dashboard showing System Health 98%, Active Agents, and Monthly Savings]
+![Sentinel Dashboard](https://github.com/user-attachments/assets/cd107902-8d4a-4a3c-a44f-834d2e52321e)
 
 ---
 
@@ -62,7 +62,7 @@ Real-time inventory of all running AI Agents. Features **Real-time Risk Scores**
 *   **Shadow AI Detection**: Instantly flags unsanctioned images.
 *   **Live Metadata**: Shows Image ID, Uptime, and Port Bindings.
 
-> [INSERT SCREENSHOT HERE: Discovery Grid showing "mcp-server" and "unknown" agents with Trust Scores]
+![Sentinel Dashboard](https://github.com/user-attachments/assets/3f580fff-7bc0-4764-bb64-cb46eb5cfecc)
 
 ---
 
@@ -71,7 +71,7 @@ The operational hub for threat response.
 *   **Alert Fallback System**: Even if the backend lags, the frontend "Safety Net" catches critical vulnerability patterns.
 *   **Kill Switch**: Admin capability to terminate non-compliant agents instantly.
 
-> [INSERT SCREENSHOT HERE: Security Alerts list showing "CRITICAL: Root User Detected"]
+![Sentinel Dashboard](https://github.com/user-attachments/assets/7a84a48b-8e7a-401c-84d8-7a4be61b71bc)
 
 ---
 
@@ -81,14 +81,14 @@ Financial observability for AI scaling.
     *   **Active Agent Cost**: Base `$300/day` + Risk Penalties (Critical agents cost +$150/day due to remediation overhead).
     *   **Money Saved**: Tracks stopped containers as `$250/day` in savings.
 
-> [INSERT SCREENSHOT HERE: Cost chart showing "Projected Monthly Spend" and "Daily Burn Rate"]
+![Sentinel Dashboard](https://github.com/user-attachments/assets/7e79eac7-8862-466e-94b3-87d5ae766500)
 
 ---
 
 ### 5. Audit Logs
 Immutable record of all governance actions. Tracks who killed which container and when configuration drifts occurred.
 
-> [INSERT SCREENSHOT HERE: Table of recent system events and alerts]
+![Sentinel Dashboard](https://github.com/user-attachments/assets/957919a4-da82-4a2a-ac77-2e10d74479ac)
 
 ---
 
@@ -98,39 +98,51 @@ Sentinel uses a decoupled architecture to ensure the UI remains responsive even 
 
 ```mermaid
 graph TD
-    subgraph "Host Environment"
+    subgraph Host_Environment ["Host Environment"]
         Docker[Docker Engine]
-        Socket[/var/run/docker.sock]
+        Socket["/var/run/docker.sock"]
     end
 
-    subgraph "Archestra Sentinel"
-        subgraph "Backend (FastAPI)"
+    subgraph Archestra_Sentinel ["Archestra Sentinel"]
+        
+        subgraph Backend ["Backend (FastAPI)"]
             Scanner[Background Scanner Thread]
-            subgraph "Trust Engine"
+            API[FastAPI Endpoints]
+            
+            subgraph Trust_Engine ["Trust Engine"]
+                direction TB
                 V1[Identity Vector]
                 V2[Config Vector]
                 V3[Network Vector]
                 V4[Resource Vector]
             end
-            API[FastAPI Endpoints]
         end
 
-        subgraph "Frontend (React)"
+        subgraph Frontend ["Frontend (React)"]
             UI[Vite + TS Dashboard]
             Safety[Client-Side Safety Net]
         end
     end
 
+    %% Data Flow
     Docker --> Socket
     Socket --> Scanner
-    Scanner --> V1 & V2 & V3 & V4
-    V1 & V2 & V3 & V4 --> Scanner
-    Scanner --"Global Cache (Atomic Update)"--> API
-    API --"JSON Data"--> UI
+    Scanner --> V1
+    Scanner --> V2
+    Scanner --> V3
+    Scanner --> V4
     
-    %% Governance Actions
-    UI --"Kill Command"--> API
-    API --"docker.stop()"--> Docker
+    V1 --> Scanner
+    V2 --> Scanner
+    V3 --> Scanner
+    V4 --> Scanner
+    
+    Scanner -- "Global Cache (Atomic Update)" --> API
+    API -- "JSON Data" --> UI
+    
+    %% User Actions
+    UI -. "Kill Command" .-> API
+    API -. "docker.stop()" .-> Docker
 ```
 
 ---
