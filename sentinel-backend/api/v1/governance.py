@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 import docker
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Any
 from core.event_logger import log, log_trust_score_change
 import logging
 
@@ -29,7 +29,7 @@ class AuditLogResponse(BaseModel):
     tool: str
     duration: int
     container_id: Optional[str] = None
-    trust_score_change: Optional[dict] = None
+    trust_score_change: Optional[Any] = None # Relaxed type to avoid 422
 
 
 def get_docker_client():
@@ -257,22 +257,28 @@ async def get_audit_logs(limit: int = 50):
 
         all_logs = get_logs()
         recent_logs = all_logs[:limit]
+        
+        valid_logs = []
+        for log_entry in recent_logs:
+            try:
+                # Ensure all required fields exist or have defaults
+                valid_logs.append(AuditLogResponse(
+                    id=str(log_entry.get("id", "")),
+                    timestamp=str(log_entry.get("timestamp", "")),
+                    agent_name=str(log_entry.get("agentName", "Unknown")),
+                    action=str(log_entry.get("action", "Unknown")),
+                    status=str(log_entry.get("status", "Info")),
+                    details=str(log_entry.get("details", "")),
+                    tool=str(log_entry.get("tool", "Docker SDK")),
+                    duration=int(log_entry.get("duration", 0)),
+                    container_id=log_entry.get("container_id"),
+                    trust_score_change=log_entry.get("trust_score_change"),
+                ))
+            except Exception as e:
+                logger.warning(f"Skipping malformed log entry: {e}")
+                continue
 
-        return [
-            AuditLogResponse(
-                id=log["id"],
-                timestamp=log["timestamp"],
-                agent_name=log["agentName"],
-                action=log["action"],
-                status=log["status"],
-                details=log["details"],
-                tool=log.get("tool", "Docker SDK"),
-                duration=log.get("duration", 0),
-                container_id=log.get("container_id"),
-                trust_score_change=log.get("trust_score_change"),
-            )
-            for log in recent_logs
-        ]
+        return valid_logs
 
     except Exception as e:
         logger.error(f"Error fetching audit logs: {e}")
