@@ -1,11 +1,18 @@
 import docker
 import sys
 import logging
+import time
+import threading
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+# GLOBAL CACHE
+DOCKER_CACHE = {
+    "containers": [],
+    "timestamp": 0
+}
 
 class ContainerInfo(BaseModel):
     id: str
@@ -13,78 +20,59 @@ class ContainerInfo(BaseModel):
     image: str
     status: str
     is_sanctioned: bool
-    type: str = "mcp_server"  # Default type: mcp_server or ai_agent
+    type: str = "mcp_server"
     threat_level: str
     risk_score: int
     trust_score: int
     trust_details: Optional[Dict[str, Any]] = None
 
 class DockerScanner:
-    def __init__(self):
-        self.client = None
-        # attempt 1: FORCE Windows/Mac TCP (host.docker.internal)
-        # This is critical for Windows Docker Desktop w/ WSL2 or Hyper-V
-        try:
-            self.client = docker.DockerClient(base_url="tcp://host.docker.internal:2375")
-            self.client.ping()
-            logger.info("Connected via tcp://host.docker.internal:2375")
-        except Exception as e:
-            logger.warning(f"host.docker.internal failed: {e}. Attempting standard env/socket...")
-            
-            # attempt 2: Standard Environment
-            try:
-                self.client = docker.from_env()
-                self.client.ping()
-                logger.info("Connected to Docker via environment/socket")
-            except Exception as e2:
-                logger.error(f"CRITICAL: Could not connect to Docker. Error: {e2}")
-                self.client = None
+    _instance = None
+    _background_thread = None
+    _stop_event = threading.Event()
 
-    def _determine_container_type(self, name: str, image: str) -> str:
-        """
-        Determine if a container is an 'ai_agent' or 'mcp_server'.
-        """
+    def __init__(self):
+        pass
+
+    @classmethod
+    def get_instance(cls):
+        if not cls._instance:
+            cls._instance = DockerScanner()
+        return cls._instance
+
+    def _connect(self):
         try:
-            name_lower = name.lower() if name else ""
-            image_lower = image.lower() if image else ""
-            
-            agent_keywords = ['agent', 'ai', 'bot', 'sentinel', 'orchestrate', 'llm', 'gpt']
-            
-            if any(k in name_lower for k in agent_keywords) or any(k in image_lower for k in agent_keywords):
-                return "ai_agent"
+            client = docker.DockerClient(base_url="tcp://host.docker.internal:2375", timeout=10)
+            client.ping()
+            return client
         except:
             pass
-            
-        # Default EVERYTHING else to mcp_server so we see it in the dashboard
-        return "mcp_server"
+        
+        try:
+            client = docker.from_env(timeout=10)
+            client.ping()
+            return client
+        except Exception as e:
+            logger.error(f"Failed to connect to Docker: {e}")
+            return None
 
     def _get_container_stats_safe(self, container) -> Dict[str, Any]:
         try:
-            # timeout=2 prevents hanging on frozen containers
-            # stream=False ensures we get a snapshot, not a stream
-            return container.stats(stream=False, decode=True)
-        except Exception as e:
-            logger.warning(f"Stats failed for {container.name}: {e}")
-            # Return safe defaults to prevent crashing risk engine
-            return {
-                "cpu_stats": {},
-                "precpu_stats": {},
-                "memory_stats": {},
-                "networks": {}
-            }
+            return container.stats(stream=False)
+        except:
+            return {}
 
-    def scan_containers(self) -> List[ContainerInfo]:
-        if not self.client:
-            print("ERROR: Docker client is None. Cannot scan.")
-            return []
+    def _perform_scan(self):
+        global DOCKER_CACHE
+        
+        client = self._connect()
+        if not client:
+            return
 
         try:
-            containers = self.client.containers.list(all=True)
-            print(f"DEBUG: Scanner raw container count: {len(containers)}")
-        except Exception as e:
-            logger.error(f"Failed to list containers: {e}")
-            print(f"ERROR: Failed to list containers: {e}")
-            return []
+            containers = client.containers.list(all=True)
+        except:
+            return
 
         results = []
         from core.risk_engine import TrustScoreEvaluator, SANCTIONED_IMAGES
@@ -92,20 +80,27 @@ class DockerScanner:
         for container in containers:
             try:
                 name = container.name or ""
-                image_tags = container.image.tags if container.image.tags else [str(container.image)]
-                image_name = image_tags[0] if image_tags else "unknown"
+                # Handle Image name parsing safely
+                try:
+                    image_tags = container.image.tags if container.image.tags else [str(container.image)]
+                    image_name = image_tags[0] if image_tags else "unknown"
+                except:
+                    image_name = "unknown"
+                    
                 image_repo = image_name.split(":")[0]
 
                 is_sanctioned = any(s in image_repo.lower() for s in SANCTIONED_IMAGES)
-
-                # Fallback stats to avoid blocking
+                
+                # Fetch Stats
                 stats = self._get_container_stats_safe(container)
 
+                # CALCULATE TRUST SCORE
                 try:
                     trust_score, trust_details = TrustScoreEvaluator.calculate_trust_score(
                         container.attrs, image_name, stats
                     )
-                except:
+                except Exception as e:
+                    logger.error(f"Trust calc failed for {name}: {e}")
                     trust_score = 50
                     trust_details = {"error": "calculation_failed"}
 
@@ -117,8 +112,16 @@ class DockerScanner:
                 if not is_sanctioned and trust_score < 60:
                     threat_level = "Critical"
                 
-                # CLASSIFICATION LOGIC
-                container_type = self._determine_container_type(name, image_name)
+                # Determine type
+                ctype = "mcp_server"
+                try:
+                    name_lower = name.lower()
+                    image_lower = image_name.lower()
+                    agent_keywords = ['agent', 'ai', 'bot', 'sentinel', 'orchestrate', 'llm', 'gpt']
+                    if any(k in name_lower for k in agent_keywords) or any(k in image_lower for k in agent_keywords):
+                        ctype = "ai_agent"
+                except:
+                    pass
 
                 info = ContainerInfo(
                     id=container.short_id,
@@ -126,7 +129,7 @@ class DockerScanner:
                     image=image_name,
                     status=container.status,
                     is_sanctioned=is_sanctioned,
-                    type=container_type,
+                    type=ctype,
                     threat_level=threat_level,
                     risk_score=100 - trust_score,
                     trust_score=trust_score,
@@ -137,5 +140,37 @@ class DockerScanner:
             except Exception as e:
                 logger.error(f"Error processing container {container.name}: {e}")
                 continue
+        
+        # ATOMIC UPDATE
+        DOCKER_CACHE["containers"] = results
+        DOCKER_CACHE["timestamp"] = time.time()
+        logger.info(f"Background Scan Complete. Cached {len(results)} containers.")
+        
+        try:
+            client.close()
+        except:
+            pass
 
-        return results
+    def scan_containers(self) -> List[ContainerInfo]:
+        global DOCKER_CACHE
+        if not DOCKER_CACHE["containers"] and DOCKER_CACHE["timestamp"] == 0:
+            logger.info("Cache empty, performing initial synchronous scan...")
+            self._perform_scan()
+            
+        return DOCKER_CACHE["containers"]
+
+def start_background_scanning():
+    """Starts the background thread"""
+    scanner = DockerScanner.get_instance()
+    
+    def loop():
+        while not scanner._stop_event.is_set():
+            try:
+                scanner._perform_scan()
+            except Exception as e:
+                logger.error(f"Background scan error: {e}")
+            time.sleep(30)
+            
+    thread = threading.Thread(target=loop, daemon=True)
+    thread.start()
+    return thread
